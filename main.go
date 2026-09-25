@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -64,8 +63,6 @@ func run(args []string) error {
 		return connectCommand(args[1:])
 	case "copy-id":
 		return copyIDCommand(args[1:])
-	case "server":
-		return serverCommand(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q (run sshable help)", args[0])
 	}
@@ -73,30 +70,24 @@ func run(args []string) error {
 }
 
 func usage() {
-	fmt.Print(`sshable makes everyday SSH connections easier.
+	fmt.Print(`sshable sets up and uses SSH key connections.
 
 Usage:
-  sshable                  Open the guided terminal interface
-  sshable tui              Open the guided terminal interface
+  sshable                  Open the terminal interface
   sshable keygen [--path PATH] [--no-passphrase]
   sshable add [--port PORT] [--identity PATH] NAME USER@HOST
   sshable list
+  sshable copy-id NAME       Install your public key (may ask for server password)
   sshable connect NAME [-- REMOTE_COMMAND...]
-  sshable copy-id NAME
   sshable remove NAME
-  sshable server init
-  sshable server authorize PUBLIC_KEY_FILE
-  sshable server keygen [--path PATH] [--no-passphrase]
 
-Typical setup:
-  On the client: sshable add mybox alice@example.com
-  On the client: sshable copy-id mybox
-  On the client: sshable connect mybox
+Setup:
+  sshable add mybox alice@example.com
+  sshable copy-id mybox
+  sshable connect mybox
 
-OpenSSH handles password prompts and host-key verification. An SSH server
-(sshd) must already be running on the remote machine.
-Run 'sshable server init' on the server only if you need to prepare that
-account's authorized_keys file manually.
+OpenSSH handles host verification and prompts for the server password during
+public-key installation. Connections after setup use the saved key only.
 `)
 }
 
@@ -295,7 +286,7 @@ func addCommand(args []string) error {
 	if err := saveConfig(c); err != nil {
 		return err
 	}
-	fmt.Printf("Saved %s (%s@%s:%d). Run 'sshable copy-id %s' to install your public key, or 'sshable connect %s' to use password authentication.\n", name, user, hostname, *port, name, name)
+	fmt.Printf("Saved %s (%s@%s:%d). Run 'sshable copy-id %s' to install your public key.\n", name, user, hostname, *port, name)
 	return nil
 }
 
@@ -359,7 +350,7 @@ func lookup(name string) (host, error) {
 }
 
 func sshArgs(h host) []string {
-	return []string{"-p", strconv.Itoa(h.Port), "-i", h.Identity, "-o", "IdentitiesOnly=yes", "--", h.User + "@" + h.Host}
+	return []string{"-p", strconv.Itoa(h.Port), "-i", h.Identity, "-o", "IdentitiesOnly=yes", "-o", "ControlPath=none", "-o", "PreferredAuthentications=publickey", "-o", "PasswordAuthentication=no", "-o", "KbdInteractiveAuthentication=no", "--", h.User + "@" + h.Host}
 }
 
 func runSSH(args []string, stdin io.Reader) error {
@@ -434,7 +425,7 @@ func copyIDCommand(args []string) error {
 	if !validPublicKey(pub) {
 		return errors.New("public key is invalid")
 	}
-	sshArgs := append(sshArgs(h), installKeyScript)
+	sshArgs := append(passwordSetupSSHArgs(h), installKeyScript)
 	if err := runSSH(sshArgs, strings.NewReader(strings.TrimSpace(string(pub))+"\n")); err != nil {
 		return err
 	}
@@ -442,121 +433,7 @@ func copyIDCommand(args []string) error {
 	return nil
 }
 
-func serverCommand(args []string) error {
-	if len(args) == 0 {
-		return errors.New("usage: sshable server init|authorize|keygen")
-	}
-	switch args[0] {
-	case "init":
-		if len(args) != 1 {
-			return errors.New("usage: sshable server init")
-		}
-		path, err := authorizedKeysPath()
-		if err != nil {
-			return err
-		}
-		if err := prepareAuthorizedKeys(path); err != nil {
-			return err
-		}
-		fmt.Println("SSH account prepared:", path)
-		return nil
-	case "authorize":
-		if len(args) != 2 {
-			return errors.New("usage: sshable server authorize PUBLIC_KEY_FILE")
-		}
-		return authorizeKey(args[1])
-	case "keygen":
-		return keygenCommand(args[1:])
-	default:
-		return errors.New("usage: sshable server init|authorize|keygen")
-	}
-}
-
-func authorizedKeysPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".ssh", "authorized_keys"), nil
-}
-
-func prepareAuthorizedKeys(path string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	if err := os.Chmod(dir, 0700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0600)
-}
-
-func authorizeKey(path string) error {
-	path, err := expandPath(path)
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if !validPublicKey(data) {
-		return errors.New("public key must be a single OpenSSH public-key line")
-	}
-	dest, err := authorizedKeysPath()
-	if err != nil {
-		return err
-	}
-	if err := prepareAuthorizedKeys(dest); err != nil {
-		return err
-	}
-	key := strings.TrimSpace(string(data))
-	f, err := os.OpenFile(dest, os.O_RDWR, 0600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		if strings.TrimSpace(scanner.Text()) == key {
-			fmt.Println("Key already authorized")
-			return nil
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	info, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	if info.Size() > 0 {
-		if _, err := f.Seek(-1, io.SeekEnd); err != nil {
-			return err
-		}
-		last := make([]byte, 1)
-		if _, err := f.Read(last); err != nil {
-			return err
-		}
-		if last[0] != '\n' {
-			if _, err := f.WriteAt([]byte("\n"), info.Size()); err != nil {
-				return err
-			}
-		}
-	}
-	if _, err := f.Seek(0, io.SeekEnd); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(f, key); err != nil {
-		return err
-	}
-	fmt.Println("Authorized key from", path)
-	return nil
+// Setup permits the server's existing login method so the public key can be installed.
+func passwordSetupSSHArgs(h host) []string {
+	return []string{"-p", strconv.Itoa(h.Port), "-i", h.Identity, "-o", "IdentitiesOnly=yes", "-o", "ControlPath=none", "--", h.User + "@" + h.Host}
 }

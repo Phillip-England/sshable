@@ -17,7 +17,6 @@ const (
 	addScreen
 	hostScreen
 	keysScreen
-	serverScreen
 	removeScreen
 )
 
@@ -25,7 +24,6 @@ type actionFinished struct {
 	name string
 	err  error
 }
-
 type tuiModel struct {
 	screen   screen
 	origin   screen
@@ -54,7 +52,6 @@ func tuiCommand() error {
 	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
-
 func (m *tuiModel) reload() error {
 	c, err := loadConfig()
 	if err != nil {
@@ -69,9 +66,7 @@ func (m *tuiModel) reload() error {
 	}
 	return nil
 }
-
 func (m tuiModel) Init() tea.Cmd { return nil }
-
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case actionFinished:
@@ -79,11 +74,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Sprintf("%s failed: %v", msg.name, msg.err)
 			m.status = ""
 		} else {
+			m.err = ""
 			m.status = msg.name + " finished."
+			if msg.name == "Public key installation" {
+				m.status = "Public key installed. Press c to connect using your key."
+			}
 			if msg.name == "Key login test" {
 				m.status = "Key login worked without a server password."
 			}
-			m.err = ""
 		}
 		if err := m.reload(); err != nil {
 			m.err = err.Error()
@@ -96,7 +94,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
-			m.status = "Server saved. Press Enter, then p to install its public key or c to connect with a password."
+			m.status = "Server saved. Press Enter, then p to install its public key using your server password."
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -109,7 +107,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if key == "esc" || key == "b" {
 			switch m.screen {
-			case keysScreen, serverScreen:
+			case keysScreen:
 				m.screen = m.origin
 			case removeScreen:
 				m.screen = hostScreen
@@ -145,9 +143,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "?":
 				m.origin = homeScreen
 				m.screen = keysScreen
-			case "s":
-				m.origin = homeScreen
-				m.screen = serverScreen
 			}
 		case hostScreen:
 			h, ok := m.hosts.Hosts[m.name]
@@ -167,9 +162,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "?":
 				m.origin = hostScreen
 				m.screen = keysScreen
-			case "s":
-				m.origin = hostScreen
-				m.screen = serverScreen
 			}
 		case keysScreen:
 			if key == "g" {
@@ -191,11 +183,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.screen = hostScreen
 			}
 		}
-		return m, nil
 	}
 	return m, nil
 }
-
 func (m tuiModel) updateAdd(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -250,23 +240,11 @@ func (m tuiModel) updateAdd(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
 func externalAction(label, executable string, args ...string) tea.Cmd {
 	cmd := exec.Command(executable, args...)
 	return tea.ExecProcess(cmd, func(err error) tea.Msg { return actionFinished{name: label, err: err} })
 }
-
-func keyOnlySSHArgs(h host) []string {
-	return []string{
-		"-p", strconv.Itoa(h.Port), "-i", h.Identity,
-		"-o", "IdentitiesOnly=yes",
-		"-o", "PreferredAuthentications=publickey",
-		"-o", "PasswordAuthentication=no",
-		"-o", "KbdInteractiveAuthentication=no",
-		"--", h.User + "@" + h.Host, "true",
-	}
-}
-
+func keyOnlySSHArgs(h host) []string { return append(sshArgs(h), "true") }
 func removeHost(name string) error {
 	c, err := loadConfig()
 	if err != nil {
@@ -278,14 +256,12 @@ func removeHost(name string) error {
 	delete(c.Hosts, name)
 	return saveConfig(c)
 }
-
 func fileState(path string) string {
 	if _, err := os.Stat(path); err == nil {
 		return "present"
 	}
 	return "missing"
 }
-
 func (m tuiModel) View() string {
 	var b strings.Builder
 	b.WriteString("SSHABLE  ·  SSH connections and keys\n")
@@ -304,12 +280,9 @@ func (m tuiModel) View() string {
 			h := m.hosts.Hosts[name]
 			fmt.Fprintf(&b, "%s%s  %s@%s:%d\n", marker, name, h.User, h.Host, h.Port)
 		}
-		b.WriteString("\nEnter details  ·  a add server  ·  ? understand keys\n")
-		b.WriteString("s key-only server guide  ·  q quit\n")
+		b.WriteString("\nEnter details  ·  a add server  ·  ? understand keys\nq quit\n")
 	case addScreen:
-		b.WriteString("Add a server\n")
-		b.WriteString("This saves an address and creates a key pair on THIS computer.\n")
-		b.WriteString("It does not install the public key on the server yet.\n\n")
+		b.WriteString("Add a server\nThis saves an address and creates a key pair on THIS computer.\nIt does not install the public key on the server yet.\n\n")
 		labels := []string{"Name (your nickname)", "Login (USER@HOST)", "SSH port", "Private key path (blank = shared default)"}
 		for i, label := range labels {
 			marker := "  "
@@ -330,46 +303,22 @@ func (m tuiModel) View() string {
 		fmt.Fprintf(&b, "%s  ·  %s@%s:%d\n\n", m.name, h.User, h.Host, h.Port)
 		fmt.Fprintf(&b, "PRIVATE key on this computer  %s (%s)\n", h.Identity, fileState(h.Identity))
 		fmt.Fprintf(&b, "PUBLIC key on this computer   %s (%s)\n", h.Identity+".pub", fileState(h.Identity+".pub"))
-		b.WriteString("PUBLIC key on server          ~/.ssh/authorized_keys\n")
-		b.WriteString("Server installation status    unknown until you try a login\n\n")
+		b.WriteString("PUBLIC key on server          ~/.ssh/authorized_keys\n\n")
 		b.WriteString("p install public key (may ask for server password)\n")
 		b.WriteString("t test key login (will not use a server password)\n")
-		b.WriteString("c connect  ·  d remove saved server\n")
-		b.WriteString("? understand keys  ·  s key-only guide  ·  b back\n")
+		b.WriteString("c connect with key  ·  d remove saved server\n")
+		b.WriteString("? understand keys  ·  b back\n")
 	case keysScreen:
 		defaultPath, _ := defaultIdentity()
-		b.WriteString("How SSH keys work\n\n")
-		b.WriteString("ssh-keygen creates TWO files on the client:\n")
-		fmt.Fprintf(&b, "  Private: %s\n", defaultPath)
-		fmt.Fprintf(&b, "  Public:  %s.pub\n\n", defaultPath)
+		b.WriteString("How SSH keys work\n\nssh-keygen creates TWO files on the client:\n")
+		fmt.Fprintf(&b, "  Private: %s\n  Public:  %s.pub\n\n", defaultPath, defaultPath)
 		b.WriteString("The private key stays here. Never copy it to the server.\n")
-		b.WriteString("'copy-id' sends the public key to the server account's\n")
-		b.WriteString("~/.ssh/authorized_keys. You first log in with an existing\n")
-		b.WriteString("method, usually the server account password.\n\n")
-		b.WriteString("The KEY PASSPHRASE unlocks your local private key.\n")
-		b.WriteString("The SERVER PASSWORD logs into the remote account.\n")
-		b.WriteString("The server's HOST KEY is another key: it proves server identity.\n\n")
-		b.WriteString("g create the default client key  ·  b back\n")
-	case serverScreen:
-		b.WriteString("Allow only key login on a server\n\n")
-		b.WriteString("1. Install your public key from the client with 'copy-id'.\n")
-		b.WriteString("2. Use 't' on the saved host to prove key login works.\n")
-		b.WriteString("3. Keep an existing server session open while changing sshd.\n")
-		b.WriteString("4. An administrator sets these in the server's sshd_config:\n\n")
-		b.WriteString("     PubkeyAuthentication yes\n")
-		b.WriteString("     AuthenticationMethods publickey\n")
-		b.WriteString("     PasswordAuthentication no\n")
-		b.WriteString("     KbdInteractiveAuthentication no\n\n")
-		b.WriteString("5. Check the effective config with sshd -T, validate with\n")
-		b.WriteString("   sshd -t, reload sshd, and test a NEW session before closing\n")
-		b.WriteString("   the old one. Server commands vary by operating system.\n\n")
-		b.WriteString("This setting lives on the SERVER, not in sshable.\n")
-		b.WriteString("b back\n")
+		b.WriteString("'copy-id' sends the public key to the server account's\n~/.ssh/authorized_keys using an existing login, usually a password.\n\n")
+		b.WriteString("The KEY PASSPHRASE unlocks your local private key.\nThe SERVER PASSWORD logs into the remote account.\n")
+		b.WriteString("OpenSSH verifies the server's host key when connecting.\n\ng create the default client key  ·  b back\n")
 	case removeScreen:
 		fmt.Fprintf(&b, "Remove saved server %q?\n\n", m.name)
-		b.WriteString("This removes its address from sshable. It does not delete\n")
-		b.WriteString("the key files or remove access from the server.\n\n")
-		b.WriteString("y remove  ·  n cancel  ·  b back\n")
+		b.WriteString("This removes its address from sshable. It does not delete\nthe key files or remove access from the server.\n\ny remove  ·  n cancel  ·  b back\n")
 	}
 	if m.err != "" {
 		fmt.Fprintf(&b, "\nError: %s\n", m.err)

@@ -43,43 +43,6 @@ func TestValidPublicKey(t *testing.T) {
 	}
 }
 
-func TestAuthorizeKeyIdempotent(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	keyFile := filepath.Join(home, "client.pub")
-	key := testPublicKey()
-	if err := os.WriteFile(keyFile, []byte(key+"\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := authorizeKey(keyFile); err != nil {
-		t.Fatal(err)
-	}
-	if err := authorizeKey(keyFile); err != nil {
-		t.Fatal(err)
-	}
-	dest := filepath.Join(home, ".ssh", "authorized_keys")
-	data, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != key+"\n" {
-		t.Fatalf("authorized_keys = %q", data)
-	}
-	for _, path := range []string{filepath.Dir(dest), dest} {
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := os.FileMode(0700)
-		if path == dest {
-			want = 0600
-		}
-		if info.Mode().Perm() != want {
-			t.Errorf("%s permissions = %o, want %o", path, info.Mode().Perm(), want)
-		}
-	}
-}
-
 func TestRemoteInstallKeyScript(t *testing.T) {
 	home := t.TempDir()
 	key := testPublicKey()
@@ -97,5 +60,19 @@ func TestRemoteInstallKeyScript(t *testing.T) {
 	}
 	if !bytes.Equal(data, []byte(key+"\n")) {
 		t.Fatalf("authorized_keys = %q", data)
+	}
+}
+
+func TestConnectionUsesKeyOnly(t *testing.T) {
+	h := host{User: "alice", Host: "example.com", Port: 2222, Identity: "/tmp/key"}
+	args := strings.Join(sshArgs(h), " ")
+	for _, want := range []string{"PreferredAuthentications=publickey", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "IdentitiesOnly=yes", "ControlPath=none"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("connection omitted %q", want)
+		}
+	}
+	setup := strings.Join(passwordSetupSSHArgs(h), " ")
+	if strings.Contains(setup, "PasswordAuthentication=no") || strings.Contains(setup, "KbdInteractiveAuthentication=no") {
+		t.Fatal("setup disabled server password login")
 	}
 }

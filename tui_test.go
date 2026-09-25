@@ -16,6 +16,7 @@ func TestKeyOnlySSHArgs(t *testing.T) {
 		"PasswordAuthentication=no",
 		"KbdInteractiveAuthentication=no",
 		"IdentitiesOnly=yes",
+		"ControlPath=none",
 	} {
 		if !slices.Contains(args, want) {
 			t.Errorf("key-only test omitted %s", want)
@@ -35,7 +36,7 @@ func TestHostViewExplainsKeyLocations(t *testing.T) {
 		}},
 	}
 	view := m.View()
-	for _, want := range []string{"PRIVATE key on this computer", "/tmp/work-key.pub", "~/.ssh/authorized_keys", "status    unknown"} {
+	for _, want := range []string{"PRIVATE key on this computer", "/tmp/work-key.pub", "~/.ssh/authorized_keys", "c connect with key"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("host view omitted %q", want)
 		}
