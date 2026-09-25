@@ -1,0 +1,21 @@
+# Go build and test output
+/sshable
+*.exe
+*.test
+*.out
+coverage.*
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+hosts.json
+id_*
+*.pem
+*.key
+
+# Editor and OS files
+.DS_Store
+*.swp
+*.swo
+*~
