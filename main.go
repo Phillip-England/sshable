@@ -45,12 +45,13 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		usage()
-		return nil
+		return tuiCommand()
 	}
 	switch args[0] {
 	case "help", "-h", "--help":
 		usage()
+	case "tui":
+		return tuiCommand()
 	case "keygen":
 		return keygenCommand(args[1:])
 	case "add":
@@ -75,6 +76,8 @@ func usage() {
 	fmt.Print(`sshable makes everyday SSH connections easier.
 
 Usage:
+  sshable                  Open the guided terminal interface
+  sshable tui              Open the guided terminal interface
   sshable keygen [--path PATH] [--no-passphrase]
   sshable add [--port PORT] [--identity PATH] NAME USER@HOST
   sshable list
@@ -86,13 +89,14 @@ Usage:
   sshable server keygen [--path PATH] [--no-passphrase]
 
 Typical setup:
-  On the server: sshable server init
   On the client: sshable add mybox alice@example.com
   On the client: sshable copy-id mybox
   On the client: sshable connect mybox
 
 OpenSSH handles password prompts and host-key verification. An SSH server
 (sshd) must already be running on the remote machine.
+Run 'sshable server init' on the server only if you need to prepare that
+account's authorized_keys file manually.
 `)
 }
 
