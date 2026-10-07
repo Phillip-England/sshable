@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sshable · local SSH setup</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/vendor/xterm.css">
+  <script src="/vendor/xterm.js" defer></script>
+  <script src="/vendor/addon-fit.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-icon">⌁</span><div><strong>sshable</strong><small>LOCAL SSH SETUP</small></div></div>
+      <button class="new-button" id="new-button" type="button">＋ Add a connection</button>
+      <div class="side-label">YOUR CONNECTIONS</div>
+      <nav id="host-list" aria-label="Saved connections"></nav>
+      <div class="sidebar-foot"><span class="local-dot"></span> Running on this computer<br><small>Private keys never leave this device.</small></div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><div class="breadcrumb">WORKSPACE <span>/</span> <b id="crumb">Overview</b></div><div class="top-pill"><span class="local-dot"></span> LOCAL ONLY</div></header>
+      <section class="console-dock hidden" id="console-dock" aria-label="SSH console">
+        <div class="console-head">
+          <div><small>LIVE SSH CONSOLE</small><h2 id="shell-title">Server terminal</h2></div>
+          <div class="console-actions">
+            <button id="shell-copy" class="console-button" type="button" disabled>Copy selection</button>
+            <button id="shell-paste" class="console-button" type="button">Paste</button>
+            <div class="terminal-type-controls" aria-label="Terminal text size"><button id="terminal-font-down" type="button" aria-label="Decrease terminal text size">−</button><span aria-hidden="true">Aa</span><button id="terminal-font-up" type="button" aria-label="Increase terminal text size">+</button></div>
+            <button id="shell-disconnect" class="console-button" type="button">Disconnect</button>
+            <button id="shell-hide" class="console-button" type="button">Hide</button>
+          </div>
+        </div>
+        <div id="shell-terminal" class="shell-terminal" aria-label="Connected server terminal"><div id="shell-terminal-inner" class="shell-terminal-inner"></div></div>
+        <div class="console-foot"><span id="shell-status" role="status">Type in the console. Select text to copy it.</span><span>Verify new host fingerprints with your server provider.</span></div>
+      </section>
+      <div class="content" id="content"></div>
+    </main>
+  </div>
+  <div class="terminal-backdrop hidden" id="terminal-backdrop" role="dialog" aria-modal="true" aria-labelledby="terminal-title">
+    <section class="terminal-panel" id="terminal-panel">
+      <div class="terminal-head"><div><small>SETUP SESSION</small><h2 id="terminal-title">Working…</h2></div><div class="terminal-head-actions"><button id="terminal-close" class="icon-button" type="button" aria-label="Close session">×</button></div></div>
+      <p class="terminal-help" id="terminal-help">Respond to prompts below. For an SSH host fingerprint, verify it against your server provider before typing <b>yes</b>. Account passwords and key passphrases are entered here only for this session.</p>
+      <pre id="terminal-output" aria-live="polite"></pre>
+      <form id="terminal-form" class="terminal-form"><input id="terminal-input" autocomplete="off" type="password" placeholder="Type a response, then press Enter"><button type="submit">Send ↵</button></form>
+      <label class="show-input" id="terminal-show-label"><input id="terminal-show" type="checkbox"> Show what I type</label>
+      <div id="terminal-result" class="terminal-result"></div>
+    </section>
+  </div>
+  <div id="toast" class="toast hidden" role="status"></div>
+</body>
+</html>
